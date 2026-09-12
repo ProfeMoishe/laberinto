@@ -1,0 +1,972 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="theme-color" content="#0f0f1a">
+  <title>Laberinto de Esfera</title>
+  <style>
+    :root {
+      --safe-top: env(safe-area-inset-top, 0px);
+      --safe-right: env(safe-area-inset-right, 0px);
+      --safe-bottom: env(safe-area-inset-bottom, 0px);
+      --safe-left: env(safe-area-inset-left, 0px);
+    }
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+      -webkit-tap-highlight-color: transparent;
+    }
+    html, body {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      overscroll-behavior: none;
+    }
+    body {
+      background: #0f0f1a;
+      height: 100vh;
+      height: 100dvh;
+      touch-action: none;
+      -webkit-user-select: none;
+      user-select: none;
+      font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+      position: fixed;
+      inset: 0;
+    }
+    canvas {
+      display: block;
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      touch-action: none;
+    }
+
+    /* ---------- Overlays ---------- */
+    #start-overlay, #win-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(8, 8, 20, 0.9);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: opacity 0.4s ease;
+      padding:
+        calc(16px + var(--safe-top))
+        calc(16px + var(--safe-right))
+        calc(16px + var(--safe-bottom))
+        calc(16px + var(--safe-left));
+    }
+    #start-overlay { z-index: 100; }
+    #win-overlay { z-index: 90; background: rgba(8, 8, 20, 0.85); }
+    #start-overlay.hidden, #win-overlay.hidden {
+      opacity: 0;
+      pointer-events: none;
+    }
+    .overlay-card {
+      background: rgba(30, 30, 50, 0.85);
+      border: 1px solid rgba(255,255,255,0.15);
+      border-radius: clamp(18px, 5vw, 28px);
+      padding: clamp(1.2rem, 5vw, 2rem);
+      text-align: center;
+      max-width: min(360px, 92vw);
+      width: 100%;
+      max-height: 90vh;
+      overflow-y: auto;
+      color: #ddd;
+      box-shadow: 0 12px 40px rgba(0,0,0,0.5);
+    }
+    .overlay-card .emoji {
+      font-size: clamp(2.2rem, 9vw, 3rem);
+      line-height: 1;
+    }
+    .overlay-card h2 {
+      margin: 0.6rem 0 0.3rem;
+      font-weight: 500;
+      font-size: clamp(1.15rem, 5vw, 1.5rem);
+    }
+    .overlay-card p {
+      font-size: clamp(0.8rem, 3.4vw, 0.95rem);
+      color: #aaa;
+      margin-bottom: 1.2rem;
+      line-height: 1.4;
+    }
+    .overlay-card .hint {
+      font-size: clamp(0.65rem, 2.8vw, 0.75rem);
+      margin-top: 1rem;
+      margin-bottom: 0;
+      color: #888;
+    }
+    .overlay-card button {
+      background: #e8833a;
+      color: white;
+      border: none;
+      font-size: clamp(1rem, 4.2vw, 1.15rem);
+      padding: clamp(0.7rem, 3vw, 0.9rem) clamp(1.4rem, 6vw, 2rem);
+      border-radius: 50px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: 0.2s;
+      box-shadow: 0 6px 20px rgba(232,131,58,0.4);
+      width: 100%;
+      max-width: 260px;
+      margin: 0 auto;
+      display: block;
+    }
+    .overlay-card button:active { transform: scale(0.96); }
+    .overlay-card button:disabled { opacity: 0.7; cursor: default; }
+    .overlay-card button.secondary {
+      background: transparent;
+      color: #bbb;
+      border: 1px solid rgba(255,255,255,0.2);
+      box-shadow: none;
+      font-size: clamp(0.85rem, 3.4vw, 0.95rem);
+      padding: clamp(0.55rem, 2.4vw, 0.7rem) clamp(1rem, 5vw, 1.5rem);
+      margin-top: 10px;
+    }
+
+    /* ---------- HUD ---------- */
+    .hud-level {
+      position: fixed;
+      top: calc(12px + var(--safe-top));
+      left: calc(12px + var(--safe-left));
+      z-index: 50;
+      background: rgba(20,20,40,0.75);
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+      border: 1px solid rgba(255,255,255,0.15);
+      color: #e0e0ee;
+      padding: clamp(6px, 1.6vw, 9px) clamp(10px, 3vw, 14px);
+      border-radius: 20px;
+      font-size: clamp(0.7rem, 2.8vw, 0.82rem);
+      font-weight: 500;
+      white-space: nowrap;
+      pointer-events: none;
+      max-width: calc(60vw - var(--safe-left));
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .hud-buttons {
+      position: fixed;
+      top: calc(12px + var(--safe-top));
+      right: calc(12px + var(--safe-right));
+      z-index: 50;
+      display: flex;
+      gap: 6px;
+    }
+    .hud-buttons button {
+      background: rgba(20,20,40,0.75);
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+      border: 1px solid rgba(255,255,255,0.2);
+      color: #ddd;
+      padding: clamp(7px, 1.8vw, 10px) clamp(10px, 3vw, 14px);
+      border-radius: 20px;
+      font-size: clamp(0.85rem, 3.4vw, 1rem);
+      cursor: pointer;
+      line-height: 1;
+      min-width: 40px;
+      min-height: 36px;
+    }
+    .hud-buttons button:active { background: rgba(232,131,58,0.35); }
+
+    #sensor-debug {
+      position: fixed;
+      bottom: calc(10px + var(--safe-bottom));
+      right: calc(10px + var(--safe-right));
+      background: rgba(0,0,0,0.6);
+      color: #8f8;
+      padding: clamp(3px, 1vw, 5px) clamp(6px, 2vw, 10px);
+      border-radius: 14px;
+      font-size: clamp(0.6rem, 2.4vw, 0.72rem);
+      font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+      pointer-events: none;
+      white-space: nowrap;
+      z-index: 50;
+    }
+
+    @media (max-width: 380px) {
+      #sensor-debug { display: none; }
+    }
+    @media (max-height: 420px) and (orientation: landscape) {
+      #sensor-debug { display: none; }
+      .overlay-card { max-width: 460px; }
+    }
+  </style>
+</head>
+<body>
+  <div id="start-overlay">
+    <div class="overlay-card">
+      <div class="emoji">🌀</div>
+      <h2>Laberinto de Esfera</h2>
+      <p>Inclina tu móvil para guiar la esfera<br>desde el inicio hasta la meta verde.<br>¡Esquiva las paredes!</p>
+      <button id="enable-sensors-btn">▶ Tocar para empezar</button>
+      <p class="hint">Usa el sensor de orientación del dispositivo</p>
+    </div>
+  </div>
+
+  <div id="win-overlay" class="hidden">
+    <div class="overlay-card">
+      <div class="emoji">🏆</div>
+      <h2>¡Nivel completado!</h2>
+      <p id="win-message">Has llegado a la meta.</p>
+      <button id="next-level-btn">Siguiente nivel →</button>
+      <button id="retry-level-btn" class="secondary">Repetir nivel</button>
+    </div>
+  </div>
+
+  <canvas id="mainCanvas"></canvas>
+
+  <div class="hud-level" id="level-badge">Nivel 1/2 · Sendero</div>
+  <div class="hud-buttons">
+    <button id="calibrate-btn" title="Calibrar">🎯</button>
+    <button id="reset-btn" title="Reiniciar">↺</button>
+  </div>
+  <div id="sensor-debug">β 0.0 γ 0.0</div>
+
+  <script>
+    (() => {
+      // ========== CONFIG ==========
+      const BOARD_MARGIN = 0.04;
+      const BALL_RADIUS_NORM = 0.042;
+      const GRAVITY = 2.6;
+      const FRICTION = 0.93;
+      const MAX_SPEED = 0.025;
+      const GOAL_RADIUS_NORM = 0.058;
+
+      // ========== MAZES ==========
+      // 1 = pared, 0 = camino. start/goal = [fila, columna]
+      const MAZES = [
+        {
+          name: "Sendero",
+          grid: [
+            [1,1,1,1,1,1,1],
+            [1,0,0,0,0,0,1],
+            [1,0,1,1,1,0,1],
+            [1,0,0,0,1,0,1],
+            [1,1,1,0,1,0,1],
+            [1,0,0,0,0,0,1],
+            [1,1,1,1,1,1,1],
+          ],
+          start: [5, 1],
+          goal:  [1, 5],
+        },
+        {
+          name: "Espiral",
+          grid: [
+            [1,1,1,1,1,1,1],
+            [1,0,0,0,1,0,1],
+            [1,0,1,0,1,0,1],
+            [1,0,1,0,0,0,1],
+            [1,0,1,1,1,1,1],
+            [1,0,0,0,0,0,1],
+            [1,1,1,1,1,1,1],
+          ],
+          start: [5, 1],
+          goal:  [1, 5],
+        },
+      ];
+
+      // ========== DOM ==========
+      const canvas = document.getElementById('mainCanvas');
+      const ctx = canvas.getContext('2d');
+      const startOverlay = document.getElementById('start-overlay');
+      const winOverlay = document.getElementById('win-overlay');
+      const enableBtn = document.getElementById('enable-sensors-btn');
+      const nextLevelBtn = document.getElementById('next-level-btn');
+      const retryLevelBtn = document.getElementById('retry-level-btn');
+      const winMessage = document.getElementById('win-message');
+      const calibrateBtn = document.getElementById('calibrate-btn');
+      const resetBtn = document.getElementById('reset-btn');
+      const levelBadge = document.getElementById('level-badge');
+      const debugDisplay = document.getElementById('sensor-debug');
+
+      // ========== ESTADO ==========
+      let w = 0, h = 0, dpr = 1;
+      let beta = 0, gamma = 0;
+      let beta0 = 0, gamma0 = 0;
+      let sensorsGranted = false;
+      let useMouseSimulation = false;
+
+      let nx = 0.5, ny = 0.5;
+      let vx = 0, vy = 0;
+
+      let walls = [];
+      let startPos = { x: 0.5, y: 0.5 };
+      let goalPos = { x: 0.5, y: 0.5 };
+      let currentLevel = 0;
+      let won = false;
+
+      let particles = [];
+      let mouseX = 0.5, mouseY = 0.5, mouseActive = false;
+
+      // ========== SENSORES ==========
+      function hasDeviceOrientation() {
+        return typeof DeviceOrientationEvent !== 'undefined';
+      }
+      async function requestOrientationPermission() {
+        if (!hasDeviceOrientation()) return false;
+        if (typeof DeviceOrientationEvent.requestPermission === 'function') {
+          try {
+            const perm = await DeviceOrientationEvent.requestPermission();
+            return perm === 'granted';
+          } catch (e) { return false; }
+        }
+        return true;
+      }
+      function enableSensors() {
+        window.addEventListener('deviceorientation', (e) => {
+          if (e.beta !== null && e.gamma !== null) {
+            beta = e.beta;
+            gamma = e.gamma;
+          }
+        }, true);
+        sensorsGranted = true;
+        useMouseSimulation = false;
+      }
+      function calibrate() {
+        beta0 = beta;
+        gamma0 = gamma;
+        vx = 0; vy = 0;
+        for (let i = 0; i < 25; i++) {
+          particles.push({
+            x: w / 2, y: h / 2,
+            vx: (Math.random() - 0.5) * 8,
+            vy: (Math.random() - 0.5) * 8 - 3,
+            life: 1, decay: 0.025 + Math.random() * 0.04,
+            size: 2 + Math.random() * 5,
+            color: '#7ec8f8'
+          });
+        }
+      }
+      function getCalibratedAngles() {
+        let b = beta - beta0;
+        let g = gamma - gamma0;
+        while (b > 180) b -= 360;
+        while (b < -180) b += 360;
+        if (g > 90) g = 180 - g;
+        if (g < -90) g = -180 - g;
+        return { b, g };
+      }
+
+      // ========== RATÓN ==========
+      function setupMouseSimulation() {
+        useMouseSimulation = true;
+        document.addEventListener('mousemove', (e) => {
+          mouseX = e.clientX / window.innerWidth;
+          mouseY = e.clientY / window.innerHeight;
+          mouseActive = true;
+        });
+        document.addEventListener('mouseleave', () => { mouseActive = false; });
+        document.addEventListener('mouseenter', (e) => {
+          mouseX = e.clientX / window.innerWidth;
+          mouseY = e.clientY / window.innerHeight;
+          mouseActive = true;
+        });
+      }
+      function getSimulatedAngles() {
+        if (!mouseActive) return { b: 0, g: 0 };
+        return {
+          b: (mouseY - 0.5) * 50,
+          g: -(mouseX - 0.5) * 50,
+        };
+      }
+
+      // ========== GEOMETRÍA ==========
+      function getPlatformRect() {
+        const minDim = Math.min(w, h);
+        const padding = Math.max(10, Math.min(minDim * 0.055, 44));
+        const availW = w - padding * 2;
+        const availH = h - padding * 2;
+        const side = Math.max(120, Math.min(availW, availH));
+        const left = (w - side) / 2;
+        const top = (h - side) / 2;
+        return { x: left, y: top, w: side, h: side };
+      }
+      function wallToCanvas(wall, p) {
+        return {
+          x: p.x + wall.x * p.w,
+          y: p.y + (1 - wall.y - wall.h) * p.h,
+          w: wall.w * p.w,
+          h: wall.h * p.h
+        };
+      }
+      function sphereCanvasCoords() {
+        const p = getPlatformRect();
+        return {
+          x: p.x + nx * p.w,
+          y: p.y + (1 - ny) * p.h,
+          r: BALL_RADIUS_NORM * p.w
+        };
+      }
+      function goalCanvasCoords() {
+        const p = getPlatformRect();
+        return {
+          x: p.x + goalPos.x * p.w,
+          y: p.y + (1 - goalPos.y) * p.h,
+          r: GOAL_RADIUS_NORM * p.w
+        };
+      }
+
+      // ========== CARGA DE NIVEL ==========
+      function loadLevel(index) {
+        currentLevel = ((index % MAZES.length) + MAZES.length) % MAZES.length;
+        const maze = MAZES[currentLevel];
+        const rows = maze.grid.length;
+        const cols = maze.grid[0].length;
+        const cellW = (1 - 2 * BOARD_MARGIN) / cols;
+        const cellH = (1 - 2 * BOARD_MARGIN) / rows;
+
+        walls = [];
+        for (let row = 0; row < rows; row++) {
+          for (let col = 0; col < cols; col++) {
+            if (maze.grid[row][col] === 1) {
+              walls.push({
+                x: BOARD_MARGIN + col * cellW,
+                y: 1 - BOARD_MARGIN - (row + 1) * cellH,
+                w: cellW,
+                h: cellH,
+                row, col
+              });
+            }
+          }
+        }
+
+        startPos = {
+          x: BOARD_MARGIN + (maze.start[1] + 0.5) * cellW,
+          y: 1 - BOARD_MARGIN - (maze.start[0] + 0.5) * cellH
+        };
+        goalPos = {
+          x: BOARD_MARGIN + (maze.goal[1] + 0.5) * cellW,
+          y: 1 - BOARD_MARGIN - (maze.goal[0] + 0.5) * cellH
+        };
+
+        resetBall();
+        won = false;
+        particles = [];
+        updateLevelBadge();
+      }
+
+      function updateLevelBadge() {
+        levelBadge.textContent = `Nivel ${currentLevel + 1}/${MAZES.length} · ${MAZES[currentLevel].name}`;
+      }
+
+      function resetBall() {
+        nx = startPos.x;
+        ny = startPos.y;
+        vx = 0; vy = 0;
+        won = false;
+      }
+
+      // ========== COLISIONES ==========
+      function resolveWallCollisions() {
+        const r = BALL_RADIUS_NORM;
+        for (let iter = 0; iter < 3; iter++) {
+          let anyCollision = false;
+          for (const wall of walls) {
+            const closestX = Math.max(wall.x, Math.min(nx, wall.x + wall.w));
+            const closestY = Math.max(wall.y, Math.min(ny, wall.y + wall.h));
+            const dx = nx - closestX;
+            const dy = ny - closestY;
+            const distSq = dx * dx + dy * dy;
+
+            if (distSq < r * r && distSq > 1e-10) {
+              const dist = Math.sqrt(distSq);
+              const penX = dx / dist;
+              const penY = dy / dist;
+              const overlap = (r - dist) * 1.001;
+              nx += penX * overlap;
+              ny += penY * overlap;
+
+              const dot = vx * penX + vy * penY;
+              if (dot < 0) {
+                vx -= 1.5 * dot * penX;
+                vy -= 1.5 * dot * penY;
+                vx *= 0.82;
+                vy *= 0.82;
+                if (Math.abs(dot) > 0.004) spawnBounceParticles(nx, ny);
+                anyCollision = true;
+              }
+            } else if (distSq <= 1e-10) {
+              // Centro dentro de la pared → empujar al borde más cercano
+              const dl = nx - wall.x;
+              const dr = wall.x + wall.w - nx;
+              const db = ny - wall.y;
+              const dt = wall.y + wall.h - ny;
+              const m = Math.min(dl, dr, db, dt);
+              if (m === dl)      { nx = wall.x - r; vx = -Math.abs(vx) * 0.5; }
+              else if (m === dr) { nx = wall.x + wall.w + r; vx = Math.abs(vx) * 0.5; }
+              else if (m === db) { ny = wall.y - r; vy = -Math.abs(vy) * 0.5; }
+              else               { ny = wall.y + wall.h + r; vy = Math.abs(vy) * 0.5; }
+              anyCollision = true;
+            }
+          }
+          if (!anyCollision) break;
+        }
+      }
+
+      function spawnBounceParticles(x, y) {
+        const p = getPlatformRect();
+        const cx = p.x + x * p.w;
+        const cy = p.y + (1 - y) * p.h;
+        for (let i = 0; i < 8; i++) {
+          const ang = Math.random() * Math.PI * 2;
+          const spd = 1.5 + Math.random() * 4;
+          particles.push({
+            x: cx, y: cy,
+            vx: Math.cos(ang) * spd,
+            vy: Math.sin(ang) * spd - 1.5,
+            life: 1, decay: 0.04 + Math.random() * 0.05,
+            size: 1.5 + Math.random() * 3,
+            color: '#f0c080'
+          });
+        }
+      }
+
+      // ========== FÍSICA ==========
+      function updatePhysics(dt) {
+        if (won) return;
+
+        let bAngle, gAngle;
+        if (!useMouseSimulation && sensorsGranted) {
+          const cal = getCalibratedAngles();
+          bAngle = cal.b; gAngle = cal.g;
+        } else if (useMouseSimulation) {
+          const sim = getSimulatedAngles();
+          bAngle = sim.b; gAngle = sim.g;
+        } else {
+          bAngle = 0; gAngle = 0;
+        }
+
+        debugDisplay.textContent = `β ${bAngle.toFixed(1)}° γ ${gAngle.toFixed(1)}°`;
+
+        const ax = Math.sin(gAngle * Math.PI / 180) * GRAVITY;
+        const ay = -Math.sin(bAngle * Math.PI / 180) * GRAVITY;
+
+        vx += ax * dt;
+        vy += ay * dt;
+        vx *= FRICTION;
+        vy *= FRICTION;
+
+        const sp = Math.sqrt(vx * vx + vy * vy);
+        if (sp > MAX_SPEED) {
+          vx *= MAX_SPEED / sp;
+          vy *= MAX_SPEED / sp;
+        }
+
+        nx += vx * dt * 60;
+        ny += vy * dt * 60;
+
+        // Clamp al borde del tablero (seguridad)
+        const lim = BOARD_MARGIN + BALL_RADIUS_NORM;
+        if (nx < lim) { nx = lim; vx = Math.abs(vx) * 0.5; }
+        if (nx > 1 - lim) { nx = 1 - lim; vx = -Math.abs(vx) * 0.5; }
+        if (ny < lim) { ny = lim; vy = Math.abs(vy) * 0.5; }
+        if (ny > 1 - lim) { ny = 1 - lim; vy = -Math.abs(vy) * 0.5; }
+
+        resolveWallCollisions();
+
+        // ¿Llegó a la meta?
+        const dx = nx - goalPos.x;
+        const dy = ny - goalPos.y;
+        if (dx * dx + dy * dy < GOAL_RADIUS_NORM * GOAL_RADIUS_NORM) {
+          onWin();
+        }
+      }
+
+      function updateParticles(dt) {
+        for (let i = particles.length - 1; i >= 0; i--) {
+          const p = particles[i];
+          p.x += p.vx * dt * 60;
+          p.y += p.vy * dt * 60;
+          p.vy += 0.12 * dt * 60;
+          p.life -= p.decay * dt * 60;
+          if (p.life <= 0) particles.splice(i, 1);
+        }
+      }
+
+      // ========== WIN ==========
+      function onWin() {
+        if (won) return;
+        won = true;
+        vx = 0; vy = 0;
+
+        const g = goalCanvasCoords();
+        const colors = ['#a0ffc8', '#3acc78', '#ffffff', '#ffe680'];
+        for (let i = 0; i < 50; i++) {
+          const ang = Math.random() * Math.PI * 2;
+          const spd = 3 + Math.random() * 8;
+          particles.push({
+            x: g.x, y: g.y,
+            vx: Math.cos(ang) * spd,
+            vy: Math.sin(ang) * spd,
+            life: 1, decay: 0.012 + Math.random() * 0.02,
+            size: 2 + Math.random() * 5,
+            color: colors[Math.floor(Math.random() * colors.length)]
+          });
+        }
+
+        winMessage.textContent = `¡Has completado "${MAZES[currentLevel].name}"!`;
+        const isLast = currentLevel === MAZES.length - 1;
+        nextLevelBtn.textContent = isLast ? 'Volver al inicio ↺' : 'Siguiente nivel →';
+
+        setTimeout(() => {
+          winOverlay.classList.remove('hidden');
+        }, 700);
+      }
+
+      // ========== DIBUJO ==========
+      function drawBackground() {
+        const grad = ctx.createRadialGradient(w / 2, h / 2, 0, w / 2, h / 2, Math.max(w, h) * 0.7);
+        grad.addColorStop(0, '#1c1c32');
+        grad.addColorStop(1, '#080814');
+        ctx.fillStyle = grad;
+        ctx.fillRect(0, 0, w, h);
+      }
+
+      function drawPlatform() {
+        const r = getPlatformRect();
+        const corner = Math.max(8, Math.min(r.w * 0.04, 18));
+
+        ctx.shadowColor = 'rgba(0,0,0,0.6)';
+        ctx.shadowBlur = 24;
+        ctx.fillStyle = '#2a2a3a';
+        ctx.beginPath();
+        ctx.roundRect(r.x - 4, r.y - 4, r.w + 8, r.h + 8, corner);
+        ctx.fill();
+        ctx.shadowColor = 'transparent';
+        ctx.shadowBlur = 0;
+
+        const grad = ctx.createLinearGradient(r.x, r.y, r.x + r.w, r.y + r.h);
+        grad.addColorStop(0, '#3e362e');
+        grad.addColorStop(0.5, '#4a4038');
+        grad.addColorStop(1, '#2f2822');
+        ctx.fillStyle = grad;
+        ctx.beginPath();
+        ctx.roundRect(r.x, r.y, r.w, r.h, corner * 0.75);
+        ctx.fill();
+
+        ctx.strokeStyle = 'rgba(180,160,140,0.45)';
+        ctx.lineWidth = Math.max(1.5, Math.min(r.w * 0.008, 3));
+        ctx.stroke();
+      }
+
+      function drawWalls() {
+        if (!walls.length) return;
+        const p = getPlatformRect();
+        const grid = MAZES[currentLevel].grid;
+        const rows = grid.length;
+        const cols = grid[0].length;
+
+        // Relleno con gradiente (efecto luz desde arriba)
+        const grad = ctx.createLinearGradient(p.x, p.y, p.x, p.y + p.h);
+        grad.addColorStop(0, '#5a6070');
+        grad.addColorStop(1, '#252a34');
+        ctx.fillStyle = grad;
+        ctx.beginPath();
+        for (const wall of walls) {
+          const c = wallToCanvas(wall, p);
+          ctx.rect(c.x, c.y, c.w + 0.5, c.h + 0.5);
+        }
+        ctx.fill();
+
+        // Bordes enfrentando al camino
+        ctx.strokeStyle = 'rgba(200,210,230,0.45)';
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        for (const wall of walls) {
+          const { row, col } = wall;
+          const c = wallToCanvas(wall, p);
+          if (row === 0 || grid[row - 1][col] !== 1) {
+            ctx.moveTo(c.x, c.y);
+            ctx.lineTo(c.x + c.w, c.y);
+          }
+          if (row === rows - 1 || grid[row + 1][col] !== 1) {
+            ctx.moveTo(c.x, c.y + c.h);
+            ctx.lineTo(c.x + c.w, c.y + c.h);
+          }
+          if (col === 0 || grid[row][col - 1] !== 1) {
+            ctx.moveTo(c.x, c.y);
+            ctx.lineTo(c.x, c.y + c.h);
+          }
+          if (col === cols - 1 || grid[row][col + 1] !== 1) {
+            ctx.moveTo(c.x + c.w, c.y);
+            ctx.lineTo(c.x + c.w, c.y + c.h);
+          }
+        }
+        ctx.stroke();
+      }
+
+      function drawStartMarker() {
+        const p = getPlatformRect();
+        const sx = p.x + startPos.x * p.w;
+        const sy = p.y + (1 - startPos.y) * p.h;
+        const rr = BALL_RADIUS_NORM * p.w * 1.6;
+        ctx.strokeStyle = 'rgba(126,200,248,0.35)';
+        ctx.lineWidth = 1.5;
+        ctx.setLineDash([4, 4]);
+        ctx.beginPath();
+        ctx.arc(sx, sy, rr, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
+
+      function drawGoal() {
+        const g = goalCanvasCoords();
+        const t = performance.now() / 400;
+        const pulse = 0.92 + Math.sin(t) * 0.08;
+
+        // Halo exterior
+        const glow = ctx.createRadialGradient(g.x, g.y, 0, g.x, g.y, g.r * 2.2);
+        glow.addColorStop(0, 'rgba(90,255,150,0.45)');
+        glow.addColorStop(1, 'rgba(90,255,150,0)');
+        ctx.fillStyle = glow;
+        ctx.beginPath();
+        ctx.arc(g.x, g.y, g.r * 2.2, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Anillo exterior pulsante
+        ctx.strokeStyle = `rgba(140,255,180,${0.55 + 0.35 * pulse})`;
+        ctx.lineWidth = 2.5;
+        ctx.beginPath();
+        ctx.arc(g.x, g.y, g.r * pulse, 0, Math.PI * 2);
+        ctx.stroke();
+
+        // Diana interior
+        const grad = ctx.createRadialGradient(
+          g.x - g.r * 0.2, g.y - g.r * 0.2, 0,
+          g.x, g.y, g.r * 0.6
+        );
+        grad.addColorStop(0, '#c0ffd8');
+        grad.addColorStop(0.5, '#3acc78');
+        grad.addColorStop(1, '#15703c');
+        ctx.fillStyle = grad;
+        ctx.beginPath();
+        ctx.arc(g.x, g.y, g.r * 0.55, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Punto central
+        ctx.fillStyle = 'rgba(255,255,255,0.85)';
+        ctx.beginPath();
+        ctx.arc(g.x, g.y, g.r * 0.14, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      function drawSphere() {
+        const sc = sphereCanvasCoords();
+        if (sc.r < 2) return;
+
+        // Sombra
+        ctx.fillStyle = 'rgba(0,0,0,0.5)';
+        ctx.beginPath();
+        ctx.ellipse(sc.x, sc.y + sc.r * 0.6, sc.r * 0.8, sc.r * 0.22, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Esfera
+        const grad = ctx.createRadialGradient(
+          sc.x - sc.r * 0.3, sc.y - sc.r * 0.35, sc.r * 0.05,
+          sc.x, sc.y, sc.r
+        );
+        grad.addColorStop(0, '#ffffff');
+        grad.addColorStop(0.1, '#e0f4ff');
+        grad.addColorStop(0.3, '#4da6cc');
+        grad.addColorStop(0.6, '#136d8a');
+        grad.addColorStop(0.85, '#083c4f');
+        grad.addColorStop(1, '#021a24');
+        ctx.fillStyle = grad;
+        ctx.beginPath();
+        ctx.arc(sc.x, sc.y, sc.r, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(255,255,255,0.25)';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+      }
+
+      function drawParticlesCtx() {
+        for (const p of particles) {
+          ctx.globalAlpha = p.life;
+          ctx.fillStyle = p.color;
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, p.size * p.life, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        ctx.globalAlpha = 1;
+      }
+
+      function drawBubbleLevel() {
+        const minDim = Math.min(w, h);
+        const R = Math.max(22, Math.min(minDim * 0.05, 42));
+        const rInner = R * 0.22;
+        const pad = Math.max(12, minDim * 0.04);
+        const cx = pad + R;
+        const cy = h - pad - R;
+
+        ctx.fillStyle = 'rgba(20,20,35,0.65)';
+        ctx.strokeStyle = 'rgba(255,255,255,0.28)';
+        ctx.lineWidth = 1.5;
+        ctx.beginPath(); ctx.arc(cx, cy, R + 5, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+        ctx.beginPath(); ctx.arc(cx, cy, R, 0, Math.PI * 2); ctx.stroke();
+
+        ctx.strokeStyle = 'rgba(255,255,255,0.22)';
+        ctx.setLineDash([3, 4]);
+        ctx.beginPath(); ctx.moveTo(cx - R * 0.7, cy); ctx.lineTo(cx + R * 0.7, cy); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(cx, cy - R * 0.7); ctx.lineTo(cx, cy + R * 0.7); ctx.stroke();
+        ctx.setLineDash([]);
+
+        let angles = useMouseSimulation ? getSimulatedAngles() : getCalibratedAngles();
+        if (!sensorsGranted && !useMouseSimulation) angles = { b: 0, g: 0 };
+
+        const offX = (angles.g / 35) * R * 0.65;
+        const offY = (angles.b / 35) * R * 0.65;
+        const dist = Math.sqrt(offX * offX + offY * offY);
+        const maxDist = R - rInner - 3;
+        const finalX = dist > maxDist ? cx + (offX / dist) * maxDist : cx + offX;
+        const finalY = dist > maxDist ? cy + (offY / dist) * maxDist : cy + offY;
+
+        const bGrad = ctx.createRadialGradient(
+          finalX - rInner * 0.3, finalY - rInner * 0.3, rInner * 0.08,
+          finalX, finalY, rInner
+        );
+        bGrad.addColorStop(0, '#fff');
+        bGrad.addColorStop(0.5, '#8ed6f0');
+        bGrad.addColorStop(1, '#1c6080');
+        ctx.fillStyle = bGrad;
+        ctx.beginPath(); ctx.arc(finalX, finalY, rInner, 0, Math.PI * 2); ctx.fill();
+      }
+
+      // ========== BUCLE ==========
+      let lastTime = performance.now();
+      function loop(now) {
+        let dt = (now - lastTime) / 1000;
+        if (dt <= 0) dt = 0.016;
+        if (dt > 0.15) dt = 0.15;
+        lastTime = now;
+
+        updatePhysics(dt);
+        updateParticles(dt);
+
+        ctx.clearRect(0, 0, w, h);
+        drawBackground();
+        drawPlatform();
+        drawWalls();
+        drawStartMarker();
+        drawGoal();
+        drawParticlesCtx();
+        drawSphere();
+        drawBubbleLevel();
+
+        if (useMouseSimulation) {
+          const fs = Math.max(11, Math.min(w, h) * 0.02);
+          ctx.fillStyle = 'rgba(255,255,255,0.35)';
+          ctx.font = `${fs}px system-ui, -apple-system, sans-serif`;
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'bottom';
+          ctx.fillText('🖱️ Modo ratón', w / 2, h - 8);
+        }
+
+        requestAnimationFrame(loop);
+      }
+
+      // ========== RESIZE ==========
+      function resize() {
+        const vv = window.visualViewport;
+        w = Math.max(1, Math.round(vv ? vv.width : window.innerWidth));
+        h = Math.max(1, Math.round(vv ? vv.height : window.innerHeight));
+        dpr = Math.min(window.devicePixelRatio || 1, 2);
+        canvas.width = Math.floor(w * dpr);
+        canvas.height = Math.floor(h * dpr);
+        canvas.style.width = w + 'px';
+        canvas.style.height = h + 'px';
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        ctx.scale(dpr, dpr);
+      }
+      let resizePending = false;
+      function scheduleResize() {
+        if (resizePending) return;
+        resizePending = true;
+        requestAnimationFrame(() => { resizePending = false; resize(); });
+      }
+      window.addEventListener('resize', scheduleResize);
+      window.addEventListener('orientationchange', () => {
+        setTimeout(scheduleResize, 80);
+        setTimeout(scheduleResize, 300);
+      });
+      if (window.visualViewport) {
+        window.visualViewport.addEventListener('resize', scheduleResize);
+        window.visualViewport.addEventListener('scroll', scheduleResize);
+      }
+
+      // ========== INICIO ==========
+      async function startSensors() {
+        enableBtn.disabled = true;
+        enableBtn.textContent = '⏳ Solicitando permiso...';
+        const granted = await requestOrientationPermission();
+        if (granted) {
+          enableSensors();
+          calibrate();
+          startOverlay.classList.add('hidden');
+        } else {
+          enableBtn.textContent = '⚠️ Sin permiso - Usar ratón';
+          useMouseSimulation = true;
+          setupMouseSimulation();
+          setTimeout(() => startOverlay.classList.add('hidden'), 800);
+        }
+      }
+
+      enableBtn.addEventListener('click', startSensors);
+      startOverlay.addEventListener('click', (e) => {
+        if (e.target === startOverlay && !enableBtn.disabled) startSensors();
+      });
+
+      calibrateBtn.addEventListener('click', calibrate);
+      calibrateBtn.addEventListener('touchend', (e) => { e.preventDefault(); calibrate(); });
+
+      resetBtn.addEventListener('click', resetBall);
+      resetBtn.addEventListener('touchend', (e) => { e.preventDefault(); resetBall(); });
+
+      nextLevelBtn.addEventListener('click', () => {
+        winOverlay.classList.add('hidden');
+        if (currentLevel === MAZES.length - 1) loadLevel(0);
+        else loadLevel(currentLevel + 1);
+      });
+      retryLevelBtn.addEventListener('click', () => {
+        winOverlay.classList.add('hidden');
+        loadLevel(currentLevel);
+      });
+
+      function detectDesktop() {
+        const hasTouch = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+        const hasFinePointer = matchMedia('(pointer: fine)').matches;
+        if (!hasTouch && hasFinePointer && !hasDeviceOrientation()) {
+          useMouseSimulation = true;
+          setupMouseSimulation();
+          startOverlay.classList.add('hidden');
+        }
+      }
+
+      // Init
+      resize();
+      loadLevel(0);
+      detectDesktop();
+      setupMouseSimulation();
+      lastTime = performance.now();
+      requestAnimationFrame(loop);
+
+      if (hasDeviceOrientation() && typeof DeviceOrientationEvent.requestPermission !== 'function') {
+        enableSensors();
+        calibrate();
+        setTimeout(() => {
+          if (!startOverlay.classList.contains('hidden')) startOverlay.classList.add('hidden');
+        }, 1200);
+      }
+    })();
+  </script>
+</body>
+</html>
